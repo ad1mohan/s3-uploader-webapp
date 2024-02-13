@@ -24,28 +24,28 @@ app.get('/', (req, res) => {
 });
 
 // Route for handling file upload
-app.post('/upload', upload.array('files'), (req, res) => {
-    const files = req.files;
-
-    // Upload each file to S3 bucket
-    files.forEach(file => {
+app.post('/upload', upload.array('files'), async (req, res) => {
+    try {
+      const promises = [];
+      for (const file of req.files) {
+        const fileStream = fs.createReadStream(file.path);
         const params = {
-            Bucket: bucket_name,
-            Key: file.originalname,
-            Body: fs.createReadStream(file.path),
+          Bucket: bucket_name,
+          Key: file.originalname,
+          Body: fileStream
         };
-
-        s3.upload(params, (err, data) => {
-            if (err) {
-                console.error(err);
-                res.status(500).send('Error uploading file to S3');
-            } else {
-                console.log('File uploaded successfully to S3:', data.Location);
-                res.send('File uploaded successfully!');
-            }
-        });
-    });
-});
+        const uploadPromise = s3.upload(params).promise();
+        promises.push(uploadPromise);
+      }
+      const results = await Promise.all(promises);
+      // Clean up files after upload
+      req.files.forEach(file => fs.unlinkSync(file.path));
+      res.send('Files uploaded successfully');
+    } catch (error) {
+      res.status(500).send('Error uploading files: ' + error.message);
+    }
+  });
+  
 
 // Start server
 app.listen(PORT, () => {
